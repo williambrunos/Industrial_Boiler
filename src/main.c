@@ -46,7 +46,7 @@ void thread_le_sensor (void){ //Le Sensores periodicamente a cada 10ms
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
 		
 		//Envia mensagem via canal de comunica��o para receber valores de sensores		
-		sensor_put(msg_socket("st-0"), msg_socket("sh-0"));
+		sensor_put(msg_socket("st-0"), msg_socket("sh-0"), msg_socket("sti0"));
 		
 		// Calcula inicio do proximo periodo
 		t.tv_nsec += periodo;
@@ -72,88 +72,78 @@ void thread_controle_nivel_agua(void) {
 	char msg_enviada[1000];
 	long atraso_fim;
 	struct timespec t, t_fim;
-	long periodo = 50e6; //50ms
+	long periodo = 50e6;
+
+	double na, ni, nf;
+	double proporcao, fluxo_maximo_entrada = 100.0;
 
 	double altura, ref_altura;
-	double temp, ref_temp;
+	double temp_na = 80.0, temp_ni, temp, ref_temp;
 	clock_gettime(CLOCK_MONOTONIC ,&t);
 	t.tv_sec++;
 
 
 	while(1) {
-		// Espera ateh inicio do proximo periodo
+		// Espera até inicio do proximo periodo
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
-		
+
+		na = 0.0; 
+		ni = 0.0; 
+		nf = 0.0;
+
 		ref_temp = ref_getT();
 		ref_altura = ref_getH();
+
 		temp = sensor_get("t");
 		altura = sensor_get("h");
-
-		double na = 0.0, ni = 0.0, nf = 0.0;
+		temp_ni = sensor_get("ti");
 
 		int precisa_subir_nivel = ref_altura > altura;
 		int precisa_descer_nivel = ref_altura < altura;
-
-		// if (precisa_subir_nivel) {
-		// 	na = 50.0;
-		// 	ni = 0.0;
-		// 	nf = 0.0;
-		// }
 
 		/*
 		 * A theread de controle de temperatura 
 		 * aument o nivel de agua quando a temperatura
 		 * esta abaixo do valor de referencia
 		 */
+		double limiar_de_temperatura = 1.5;
+		double limiar_de_altura = 0.1;
+		int altura_esta_no_limiar = fabs(ref_altura - altura) <= limiar_de_altura;
+		int temperatura_esta_no_limiar = fabs(ref_temp - temp) <= limiar_de_temperatura;
 
-		int limiar_de_temperatura = 2.0;
-		int limiar_de_altura = 0.1;
-		// altura_esta_no_limiar, para cima ou para baixo
-		int altura_esta_no_limiar = abs(ref_altura - altura) <= limiar_de_altura;
-		int temperatura_esta_no_limiar = abs(ref_temp - temp) <= limiar_de_temperatura;
-
-		/*
-		 * Caso a temperatura esteja no limiar, nao precisa esquentar.
-		 * Mas se a altura já estiver no limiar, esquentar se necessário.
-		 */ 
-		int precisa_esquentar = ref_temp > temp && (!temperatura_esta_no_limiar || altura_esta_no_limiar);
-		
-		// aloca_tela();
-		// printf("ref_altura: %lf, altura: %lf, diff: %lf, %c\n", ref_altura, altura, ref_altura - altura, altura_esta_no_limiar == 1 ? 'S' : 'N');
+		// Determina quem está mais longe do limiar, proporcionamente
+		double distancia_do_limiar_altura = fabs(ref_altura - altura) / limiar_de_altura;
+		double distancia_do_limiar_temperatura = fabs(ref_temp - temp) / limiar_de_temperatura;
+		int temperatura_esta_mais_longe_referencia = distancia_do_limiar_temperatura > distancia_do_limiar_altura;
+		int precisa_esquentar = ref_temp > temp && (!temperatura_esta_no_limiar || temperatura_esta_mais_longe_referencia);
 
 		if (precisa_esquentar) {
-			// Caraio, o que é isso????
-			int condicao_magica = (ref_temp - temp) * 20 > 10.0;
-			if (!condicao_magica) {
+			int condicao_controle_temperatura = (ref_temp - temp) * 20 > 10.0;
+			if (!condicao_controle_temperatura) {
 				na = (ref_temp - temp) * 20;
 				nf = na;
 			}
-
-			if (altura_esta_no_limiar) nf = na;
-			else if (ref_altura > altura) nf = 0.0;
-			else nf = na + 20.0;
-
 		} else {
 			if (precisa_subir_nivel) {
 				// Fazer mistura de agua fria e quente para injetar água 
 				// a temperatura desejada no tanque
-				na = 70.0;
-				ni = 10.0;
+				proporcao = (ref_temp - temp_ni) / (temp_na - temp_ni);
+				na = fluxo_maximo_entrada / (1 + proporcao);
+				ni = fluxo_maximo_entrada - na;
 				nf = 0.0;
 			} else if (precisa_descer_nivel) {
 				na = 0.0;
 				nf = 20.0;
 			}
 		}
-		// libera_tela();
 
-		sprintf( msg_enviada, "ani%lf", ni);
+		sprintf(msg_enviada, "ani%lf", ni);
 		msg_socket(msg_enviada);
 		
-		sprintf( msg_enviada, "anf%lf", nf);
+		sprintf(msg_enviada, "anf%lf", nf);
 		msg_socket(msg_enviada);
 		
-		sprintf( msg_enviada, "ana%lf", na);
+		sprintf(msg_enviada, "ana%lf", na);
 		msg_socket(msg_enviada);
 	}
 }

@@ -10,6 +10,7 @@
 #include "tela.h"
 #include "bufduplo.h"
 #include "referenciaT.h"
+#include "referenciaH.h"
 
 #define	NSEC_PER_SEC    (1000000000) 	// Numero de nanosegundos em um segundo
 
@@ -67,6 +68,52 @@ void thread_alarme (void){
 		
 }
 
+void thread_controle_nivel_agua(void) {
+	char msg_enviada[1000];
+	long atraso_fim;
+	struct timespec t, t_fim;
+	long periodo = 50e6; //50ms
+
+	double altura, ref_altura;
+	double temp, ref_temp;
+	clock_gettime(CLOCK_MONOTONIC ,&t);
+	t.tv_sec++;
+
+	ref_temp = ref_getT();
+	ref_altura = ref_getH();
+
+	while(1) {
+		// Espera ateh inicio do proximo periodo
+		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
+		
+		temp = sensor_get("t");
+		altura = sensor_get("h");
+
+		double na, nf;
+
+		
+		int precisa_esquentar = ref_temp > temp;
+		if (precisa_esquentar) {
+			
+			// Caraio, o que é isso????
+			int condicao_magica = (ref_temp-temp)*20>10.0;
+			if (!condicao_magica) {
+				na = (ref_temp-temp)*20;
+				nf = na;
+			} 
+
+			sprintf( msg_enviada, "ani%lf", 0.0);
+	        msg_socket(msg_enviada);
+			
+			sprintf( msg_enviada, "anf%lf", nf);
+	        msg_socket(msg_enviada);
+			
+	        sprintf( msg_enviada, "ana%lf", na);
+			msg_socket(msg_enviada);
+		} 
+	}
+}
+
 ///Controle
 void thread_controle_temperatura (void){
 	char msg_enviada[1000];
@@ -102,9 +149,9 @@ void thread_controle_temperatura (void){
         if(temp < ref_temp) {    //aumenta temperatura
 	     
 	        if((ref_temp-temp)*20>10.0)
-	        na=10.0;
+	        	na=10.0;
 	        else
-	        na = (ref_temp-temp)*20;
+	        	na = (ref_temp-temp)*20;
 					
 			sprintf( msg_enviada, "ani%lf", 0.0);
 	        msg_socket(msg_enviada);
@@ -163,24 +210,26 @@ void thread_grava_temp_resp(void){
 
 int main( int argc, char *argv[]) {
     ref_putT(29.0);
+	ref_putH(2.0);
 	cria_socket(argv[1], atoi(argv[2]) );
     
-	pthread_t t1, t2, t3, t4, t5;
+	pthread_t t1, t2, t3, t4, t5, t6;
     
     pthread_create(&t1, NULL, (void *) thread_mostra_status, NULL);
     pthread_create(&t2, NULL, (void *) thread_le_sensor, NULL);
     pthread_create(&t3, NULL, (void *) thread_alarme, NULL);
     pthread_create(&t4, NULL, (void *) thread_controle_temperatura, NULL);
     pthread_create(&t5, NULL, (void *) thread_grava_temp_resp, NULL);
+	pthread_create(&t6, NULL, (void *) thread_controle_nivel_agua, NULL);
     
 	pthread_join( t1, NULL);
 	pthread_join( t2, NULL);
 	pthread_join( t3, NULL);
 	pthread_join( t4, NULL);
 	pthread_join( t5, NULL);
+	pthread_join( t6, NULL);
 	
 	return 0;
-	    
 }
 
 //teste

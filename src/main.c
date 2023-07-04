@@ -5,10 +5,12 @@
 #include <unistd.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 #include "socket.h"
 #include "sensores.h"
 #include "tela.h"
 #include "bufduplo.h"
+#include "nivelBufduplo.h"
 #include "referenciaT.h"
 #include "referenciaH.h"
 
@@ -72,16 +74,16 @@ void thread_controle_nivel_agua(void) {
 	char msg_enviada[1000];
 	long atraso_fim;
 	struct timespec t, t_fim;
-	long periodo = 50e6;
+	long periodo = 50e6; //50ms
 
 	double na, ni, nf;
 	double proporcao, fluxo_maximo_entrada = 100.0;
 
 	double altura, ref_altura;
 	double temp_na = 80.0, temp_ni, temp, ref_temp;
+
 	clock_gettime(CLOCK_MONOTONIC ,&t);
 	t.tv_sec++;
-
 
 	while(1) {
 		// Espera até inicio do proximo periodo
@@ -145,6 +147,21 @@ void thread_controle_nivel_agua(void) {
 		
 		sprintf(msg_enviada, "ana%lf", na);
 		msg_socket(msg_enviada);
+
+		// Le a hora atual, coloca em t_fim
+		clock_gettime(CLOCK_MONOTONIC ,&t_fim);
+		
+		// Calcula o tempo de resposta observado em microsegundos
+		atraso_fim = 1000000*(t_fim.tv_sec - t.tv_sec)   +   (t_fim.tv_nsec - t.tv_nsec)/1000;
+		
+		nivel_bufduplo_insereLeitura(atraso_fim);
+		
+		// Calcula inicio do proximo periodo
+		t.tv_nsec += periodo;
+		while (t.tv_nsec >= NSEC_PER_SEC) {
+			t.tv_nsec -= NSEC_PER_SEC;
+			t.tv_sec++;
+		}
 	}
 }
 
@@ -242,12 +259,56 @@ void thread_grava_temp_resp(void){
 }
 
 
+void thread_grava_tempo_resposta_controlador_nivel(void){
+	FILE* dados_f;
+	dados_f = fopen("tempoRespostaControleTemp.txt", "w");
+    if(dados_f == NULL){
+        printf("Erro, nao foi possivel abrir o arquivo\n");
+        exit(1);    
+    }
+	int amostras = 1;	
+	while(amostras++ <= N_AMOSTRAS / 200){
+		
+		long * buf = nivel_bufduplo_esperaBufferCheio();		
+		int n2 = nivel_tamBuf();
+		int tam = 0;
+		while(tam<n2) {
+			fprintf(dados_f, "%4ld\n", buf[tam++]); 
+		}
+		fflush(dados_f);
+
+		// if (buf == NULL) {
+		// 	fprintf(dados_f, "Erro ao ler buffer duplo\n");
+		// 	fflush(dados_f);
+
+		// 	printf("Erro ao ler buffer duplo\n");
+		// } else {
+		// 	for (int i = 0; i < n2; i++) {
+		// 		printf("%4ld\n", buf[i]);
+		// 		// fprintf(dados_f, "%4ld\n", buf[i]);
+		// 	}
+
+		// }
+
+
+		// fflush(dados_f);
+
+		aloca_tela();
+		printf("Gravando no arquivo (nível)...\n");
+		libera_tela();
+
+	}
+	
+	fclose(dados_f);	
+}
+
+
 int main( int argc, char *argv[]) {
     ref_putT(29.0);
 	ref_putH(2.0);
 	cria_socket(argv[1], atoi(argv[2]) );
     
-	pthread_t t1, t2, t3, t4, t5, t6;
+	pthread_t t1, t2, t3, t4, t5, t6, t7;
     
     pthread_create(&t1, NULL, (void *) thread_mostra_status, NULL);
     pthread_create(&t2, NULL, (void *) thread_le_sensor, NULL);
@@ -255,6 +316,7 @@ int main( int argc, char *argv[]) {
     pthread_create(&t4, NULL, (void *) thread_controle_temperatura, NULL);
     pthread_create(&t5, NULL, (void *) thread_grava_temp_resp, NULL);
 	pthread_create(&t6, NULL, (void *) thread_controle_nivel_agua, NULL);
+	pthread_create(&t7, NULL, (void *) thread_grava_tempo_resposta_controlador_nivel, NULL);
     
 	pthread_join( t1, NULL);
 	pthread_join( t2, NULL);
@@ -262,6 +324,7 @@ int main( int argc, char *argv[]) {
 	pthread_join( t4, NULL);
 	pthread_join( t5, NULL);
 	pthread_join( t6, NULL);
+	pthread_join( t7, NULL);
 	
 	return 0;
 }

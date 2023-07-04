@@ -14,6 +14,10 @@ docker build -t str .
 docker run -it -v $(pwd)/src:/code --name str str /bin/bash
 ```
 
+```
+docker exec -it str /bin/bash
+```
+
 ## Compilar e Executar o Código em C
 
 ```

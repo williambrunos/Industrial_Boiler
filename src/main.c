@@ -79,38 +79,82 @@ void thread_controle_nivel_agua(void) {
 	clock_gettime(CLOCK_MONOTONIC ,&t);
 	t.tv_sec++;
 
-	ref_temp = ref_getT();
-	ref_altura = ref_getH();
 
 	while(1) {
 		// Espera ateh inicio do proximo periodo
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
 		
+		ref_temp = ref_getT();
+		ref_altura = ref_getH();
 		temp = sensor_get("t");
 		altura = sensor_get("h");
 
-		double na, nf;
+		double na = 0.0, ni = 0.0, nf = 0.0;
 
+		int precisa_subir_nivel = ref_altura > altura;
+		int precisa_descer_nivel = ref_altura < altura;
+
+		// if (precisa_subir_nivel) {
+		// 	na = 50.0;
+		// 	ni = 0.0;
+		// 	nf = 0.0;
+		// }
+
+		/*
+		 * A theread de controle de temperatura 
+		 * aument o nivel de agua quando a temperatura
+		 * esta abaixo do valor de referencia
+		 */
+
+		int limiar_de_temperatura = 2.0;
+		int limiar_de_altura = 0.1;
+		// altura_esta_no_limiar, para cima ou para baixo
+		int altura_esta_no_limiar = abs(ref_altura - altura) <= limiar_de_altura;
+		int temperatura_esta_no_limiar = abs(ref_temp - temp) <= limiar_de_temperatura;
+
+		/*
+		 * Caso a temperatura esteja no limiar, nao precisa esquentar.
+		 * Mas se a altura já estiver no limiar, esquentar se necessário.
+		 */ 
+		int precisa_esquentar = ref_temp > temp && (!temperatura_esta_no_limiar || altura_esta_no_limiar);
 		
-		int precisa_esquentar = ref_temp > temp;
-		if (precisa_esquentar) {
-			
-			// Caraio, o que é isso????
-			int condicao_magica = (ref_temp-temp)*20>10.0;
-			if (!condicao_magica) {
-				na = (ref_temp-temp)*20;
-				nf = na;
-			} 
+		// aloca_tela();
+		// printf("ref_altura: %lf, altura: %lf, diff: %lf, %c\n", ref_altura, altura, ref_altura - altura, altura_esta_no_limiar == 1 ? 'S' : 'N');
 
-			sprintf( msg_enviada, "ani%lf", 0.0);
-	        msg_socket(msg_enviada);
-			
-			sprintf( msg_enviada, "anf%lf", nf);
-	        msg_socket(msg_enviada);
-			
-	        sprintf( msg_enviada, "ana%lf", na);
-			msg_socket(msg_enviada);
-		} 
+		if (precisa_esquentar) {
+			// Caraio, o que é isso????
+			int condicao_magica = (ref_temp - temp) * 20 > 10.0;
+			if (!condicao_magica) {
+				na = (ref_temp - temp) * 20;
+				nf = na;
+			}
+
+			if (altura_esta_no_limiar) nf = na;
+			else if (ref_altura > altura) nf = 0.0;
+			else nf = na + 20.0;
+
+		} else {
+			if (precisa_subir_nivel) {
+				// Fazer mistura de agua fria e quente para injetar água 
+				// a temperatura desejada no tanque
+				na = 70.0;
+				ni = 10.0;
+				nf = 0.0;
+			} else if (precisa_descer_nivel) {
+				na = 0.0;
+				nf = 20.0;
+			}
+		}
+		// libera_tela();
+
+		sprintf( msg_enviada, "ani%lf", ni);
+		msg_socket(msg_enviada);
+		
+		sprintf( msg_enviada, "anf%lf", nf);
+		msg_socket(msg_enviada);
+		
+		sprintf( msg_enviada, "ana%lf", na);
+		msg_socket(msg_enviada);
 	}
 }
 
